@@ -1,22 +1,25 @@
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.TypeAdapter;
+import com.google.gson.annotations.SerializedName;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.annotations.SerializedName;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Thread-safe API client for the Честный знак system with request rate limiting.
@@ -25,19 +28,21 @@ public class CrptApi {
     // API endpoints
     private static final String PRODUCTION_BASE_URL = "https://ismp.crpt.ru/api/v3";
     private static final String DEMO_BASE_URL = "https://markirovka.demo.crpt.tech/api/v3";
-    private static final String CREATE_DOCUMENT_ENDPOINT = "/lk/documents/create";
     private static final String AUTH_CERT_KEY_ENDPOINT = "/auth/cert/key";
-    
+    private static final String AUTH_CERT_ENDPOINT = "/auth/cert/";
+    private static final String CREATE_DOCUMENT_ENDPOINT = "/lk/documents/create";
+
     private static final String CONTENT_TYPE = "application/json";
-    
+
     private final HttpClient httpClient;
     private final Gson gson;
     private final Semaphore requestSemaphore;
+    private final int requestLimit;
     private final Lock resetLock;
     private final ScheduledExecutorService scheduler;
     private final String baseUrl;
     private String authToken;
-    
+
     public enum Environment {
         PRODUCTION, DEMO
     }
@@ -55,7 +60,11 @@ public class CrptApi {
         }
 
         this.httpClient = HttpClient.newHttpClient();
-        this.gson = new GsonBuilder().setPrettyPrinting().create();
+        this.gson = new GsonBuilder()
+                .registerTypeAdapter(LocalDate.class, new LocalDateAdapter())
+                .setPrettyPrinting()
+                .create();
+        this.requestLimit = requestLimit;
         this.requestSemaphore = new Semaphore(requestLimit);
         this.resetLock = new ReentrantLock();
         this.scheduler = Executors.newScheduledThreadPool(1);
@@ -65,7 +74,7 @@ public class CrptApi {
         long periodInMillis = timeUnit.toMillis(1);
         scheduler.scheduleAtFixedRate(this::resetPermits, periodInMillis, periodInMillis, TimeUnit.MILLISECONDS);
     }
-    
+
     /**
      * Creates a new CrptApi instance with the specified rate limiting, using the production environment.
      *
@@ -83,53 +92,53 @@ public class CrptApi {
         resetLock.lock();
         try {
             requestSemaphore.drainPermits();
-            requestSemaphore.release(requestSemaphore.availablePermits());
+            requestSemaphore.release(requestLimit);
         } finally {
             resetLock.unlock();
         }
     }
-    
+
     /**
      * Authenticate with the API using certificate.
-     * 
+     *
      * @param certificateSigner Function to sign certificate data with УКЭП
      * @return The authorization token
-     * @throws IOException If there's an error during the HTTP request
+     * @throws IOException          If there's an error during the HTTP request
      * @throws InterruptedException If the thread is interrupted
-     * @throws ApiException If the API returns an error
+     * @throws ApiException         If the API returns an error
      */
-    public String authenticate(CertificateSigner certificateSigner) 
+    public String authenticate(CertificateSigner certificateSigner)
             throws IOException, InterruptedException, ApiException {
         // First, get the authentication key
         AuthKeyResponse keyResponse = executeRequest(
-            HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl + AUTH_CERT_KEY_ENDPOINT))
-                .GET()
-                .build(),
-            AuthKeyResponse.class
+                HttpRequest.newBuilder()
+                        .uri(URI.create(baseUrl + AUTH_CERT_KEY_ENDPOINT))
+                        .GET()
+                        .build(),
+                AuthKeyResponse.class
         );
-        
+
         // Sign the received data with the provided signer
         String signedData = certificateSigner.sign(keyResponse.getData());
-        
+
         // Create the authentication request
         AuthRequest authRequest = new AuthRequest(keyResponse.getUuid(), signedData);
         String authRequestJson = gson.toJson(authRequest);
-        
+
         // Send the signed data to get a token
         HttpRequest authHttpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl + "/auth/cert/"))
+                .uri(URI.create(baseUrl + AUTH_CERT_ENDPOINT))
                 .header("Content-Type", CONTENT_TYPE)
                 .POST(HttpRequest.BodyPublishers.ofString(authRequestJson))
                 .build();
-        
+
         AuthResponse authResponse = executeRequest(authHttpRequest, AuthResponse.class);
-        
+
         // Store and return the token
         this.authToken = authResponse.getToken();
         return this.authToken;
     }
-    
+
     /**
      * Interface for signing certificate data with УКЭП.
      */
@@ -137,57 +146,57 @@ public class CrptApi {
     public interface CertificateSigner {
         /**
          * Sign the provided data with УКЭП.
-         * 
+         *
          * @param data The data to sign
          * @return The signed data in base64 format
          */
         String sign(String data);
     }
-    
+
     /**
      * Authentication request.
      */
     private static class AuthRequest {
         @SerializedName("uuid")
         private final String uuid;
-        
+
         @SerializedName("data")
         private final String data;
-        
+
         public AuthRequest(String uuid, String data) {
             this.uuid = uuid;
             this.data = data;
         }
     }
-    
+
     /**
      * Authentication response.
      */
     private static class AuthResponse {
         @SerializedName("token")
         private String token;
-        
+
         @SerializedName("code")
         private String code;
-        
+
         @SerializedName("error_message")
         private String errorMessage;
-        
+
         @SerializedName("description")
         private String description;
-        
+
         public String getToken() {
             return token;
         }
-        
+
         public String getCode() {
             return code;
         }
-        
+
         public String getErrorMessage() {
             return errorMessage;
         }
-        
+
         public String getDescription() {
             return description;
         }
@@ -196,30 +205,30 @@ public class CrptApi {
     /**
      * Creates a document in the Честный знак system.
      *
-     * @param documentFormat The format of the document (MANUAL, XML, CSV)
+     * @param documentFormat  The format of the document (MANUAL, XML, CSV)
      * @param productDocument The document content encoded in Base64
-     * @param signature The detached signature (УКЭП) in Base64
-     * @param type The document type (e.g., LP_INTRODUCE_GOODS)
-     * @param productGroup The product group code (e.g., "milk", "shoes", etc.)
+     * @param signature       The detached signature (УКЭП) in Base64
+     * @param type            The document type (e.g., LP_INTRODUCE_GOODS)
+     * @param productGroup    The product group code (e.g., "milk", "shoes", etc.)
      * @return The API response
      * @throws InterruptedException If the thread is interrupted while waiting for a permit
-     * @throws IOException If there's an I/O error during the HTTP request
-     * @throws ApiException If the API returns an error
-     * @throws TimeoutException If the request times out due to rate limiting
+     * @throws IOException          If there's an I/O error during the HTTP request
+     * @throws ApiException         If the API returns an error
+     * @throws TimeoutException     If the request times out due to rate limiting
      */
     public CreateDocumentResponse createDocument(
-            DocumentFormat documentFormat, 
-            String productDocument, 
-            String signature, 
-            DocumentType type, 
-            ProductGroup productGroup) 
+            DocumentFormat documentFormat,
+            String productDocument,
+            String signature,
+            DocumentType type,
+            ProductGroup productGroup)
             throws InterruptedException, IOException, ApiException, TimeoutException {
-        
+
         // Check if we have an auth token
         if (authToken == null || authToken.isEmpty()) {
             throw new IllegalStateException("Authentication token is missing. Call authenticate() first.");
         }
-        
+
         // Acquire a permit, blocking if necessary
         if (!requestSemaphore.tryAcquire()) {
             throw new TimeoutException("Request rate limit exceeded. Try again later.");
@@ -247,7 +256,7 @@ public class CrptApi {
 
             return executeRequest(request, CreateDocumentResponse.class);
 
-        } catch (IOException e) {
+        } catch (IOException | ApiException e) {
             throw new IOException("Error creating document: " + e.getMessage(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -257,30 +266,30 @@ public class CrptApi {
             requestSemaphore.release();
         }
     }
-    
+
     /**
      * Creates a document for introducing Russian-produced goods into circulation.
      * This is a convenience method that uses the unified document creation endpoint.
      *
-     * @param document The document content
-     * @param signature The digital signature for the document
+     * @param document     The document content
+     * @param signature    The digital signature for the document
      * @param productGroup The product group
      * @return The API response
      * @throws InterruptedException If the thread is interrupted while waiting for a permit
-     * @throws IOException If there's an I/O error during the HTTP request
-     * @throws ApiException If the API returns an error
-     * @throws TimeoutException If the request times out due to rate limiting
+     * @throws IOException          If there's an I/O error during the HTTP request
+     * @throws ApiException         If the API returns an error
+     * @throws TimeoutException     If the request times out due to rate limiting
      */
-    public CreateDocumentResponse createIntroduceGoodsDocument(Document document, String signature, ProductGroup productGroup) 
+    public CreateDocumentResponse createIntroduceGoodsDocument(Document document, String signature, ProductGroup productGroup)
             throws InterruptedException, IOException, ApiException, TimeoutException {
         // Convert the document to Base64-encoded JSON string
         String documentJson = gson.toJson(document);
         String base64Document = java.util.Base64.getEncoder().encodeToString(documentJson.getBytes());
-        
+
         return createDocument(
-                DocumentFormat.MANUAL, 
-                base64Document, 
-                signature, 
+                DocumentFormat.MANUAL,
+                base64Document,
+                signature,
                 DocumentType.LP_INTRODUCE_GOODS,
                 productGroup
         );
@@ -293,18 +302,18 @@ public class CrptApi {
         MANUAL("MANUAL"),
         XML("XML"),
         CSV("CSV");
-        
+
         private final String value;
-        
+
         DocumentFormat(String value) {
             this.value = value;
         }
-        
+
         public String getValue() {
             return value;
         }
     }
-    
+
     /**
      * Product group enum.
      */
@@ -319,18 +328,18 @@ public class CrptApi {
         MILK("milk"),
         BICYCLE("bicycle"),
         WHEELCHAIRS("wheelchairs");
-        
+
         private final String code;
-        
+
         ProductGroup(String code) {
             this.code = code;
         }
-        
+
         public String getCode() {
             return code;
         }
     }
-    
+
     /**
      * Document type enum.
      */
@@ -395,42 +404,42 @@ public class CrptApi {
         LP_SHIP_GOODS_CROSSBORDER_CSV("LP_SHIP_GOODS_CROSSBORDER_CSV"),
         LP_SHIP_GOODS_CROSSBORDER_XML("LP_SHIP_GOODS_CROSSBORDER_XML"),
         LP_CANCEL_SHIPMENT_CROSSBORDER("LP_CANCEL_SHIPMENT_CROSSBORDER");
-        
+
         private final String value;
-        
+
         DocumentType(String value) {
             this.value = value;
         }
-        
+
         public String getValue() {
             return value;
         }
     }
-    
+
     /**
      * Unified document request for the document creation API.
      */
     private static class UnifiedDocumentRequest {
         @SerializedName("document_format")
         private final String documentFormat;
-        
+
         @SerializedName("product_document")
         private final String productDocument;
-        
+
         @SerializedName("product_group")
         private final String productGroup;
-        
+
         @SerializedName("signature")
         private final String signature;
-        
+
         @SerializedName("type")
         private final String type;
-        
+
         public UnifiedDocumentRequest(
-                String documentFormat, 
-                String productDocument, 
-                String productGroup, 
-                String signature, 
+                String documentFormat,
+                String productDocument,
+                String productGroup,
+                String signature,
                 String type) {
             this.documentFormat = documentFormat;
             this.productDocument = productDocument;
@@ -443,24 +452,29 @@ public class CrptApi {
     /**
      * Execute an HTTP request and parse the response.
      *
-     * @param request The HTTP request to execute
+     * @param request      The HTTP request to execute
      * @param responseType The class to parse the response into
      * @return The parsed response
-     * @throws IOException If there's an error during the HTTP request
+     * @throws IOException          If there's an error during the HTTP request
      * @throws InterruptedException If the thread is interrupted
-     * @throws ApiException If the API returns an error
+     * @throws ApiException         If the API returns an error
      */
-    private <T> T executeRequest(HttpRequest request, Class<T> responseType) 
+    private <T> T executeRequest(HttpRequest request, Class<T> responseType)
             throws IOException, InterruptedException, ApiException {
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        
+
         // Check for error responses
         int statusCode = response.statusCode();
         if (statusCode >= 400) {
-            ApiError error = gson.fromJson(response.body(), ApiError.class);
-            throw new ApiException(statusCode, error.getErrorMessage());
+            String responseBody = response.body();
+            if (responseBody != null && !responseBody.isEmpty()) {
+                ApiError error = gson.fromJson(responseBody, ApiError.class);
+                throw new ApiException(statusCode, error.getErrorMessage());
+            } else {
+                throw new ApiException(statusCode, "API returned an error with no content");
+            }
         }
-        
+
         // Parse the response
         return gson.fromJson(response.body(), responseType);
     }
@@ -471,49 +485,49 @@ public class CrptApi {
     public void shutdown() {
         scheduler.shutdown();
     }
-    
+
     /**
      * Exception thrown when the API returns an error.
      */
     public static class ApiException extends Exception {
         private final int statusCode;
-        
+
         public ApiException(int statusCode, String message) {
             super(message);
             this.statusCode = statusCode;
         }
-        
+
         public int getStatusCode() {
             return statusCode;
         }
     }
-    
+
     /**
      * API error response.
      */
     private static class ApiError {
         @SerializedName("error_message")
         private String errorMessage;
-        
+
         public String getErrorMessage() {
             return errorMessage;
         }
     }
-    
+
     /**
      * Authentication key response.
      */
     private static class AuthKeyResponse {
         @SerializedName("uuid")
         private String uuid;
-        
+
         @SerializedName("data")
         private String data;
-        
+
         public String getUuid() {
             return uuid;
         }
-        
+
         public String getData() {
             return data;
         }
@@ -526,14 +540,14 @@ public class CrptApi {
         // Add fields based on the actual API response
         @SerializedName("document_id")
         private String documentId;
-        
+
         @SerializedName("status")
         private String status;
-        
+
         public String getDocumentId() {
             return documentId;
         }
-        
+
         public String getStatus() {
             return status;
         }
@@ -808,6 +822,32 @@ public class CrptApi {
 
         public void setUituCode(String uituCode) {
             this.uituCode = uituCode;
+        }
+    }
+    
+    /**
+     * Gson TypeAdapter for {@link LocalDate}.
+     */
+    public static class LocalDateAdapter extends TypeAdapter<LocalDate> {
+        private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
+
+        @Override
+        public void write(JsonWriter out, LocalDate value) throws IOException {
+            if (value == null) {
+                out.nullValue();
+            } else {
+                out.value(FORMATTER.format(value));
+            }
+        }
+
+        @Override
+        public LocalDate read(JsonReader in) throws IOException {
+            if (in.peek() == com.google.gson.stream.JsonToken.NULL) {
+                in.nextNull();
+                return null;
+            } else {
+                return LocalDate.parse(in.nextString(), FORMATTER);
+            }
         }
     }
 } 
