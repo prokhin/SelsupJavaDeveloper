@@ -18,6 +18,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -49,7 +50,7 @@ public class CrptApiTest {
     private ArgumentCaptor<HttpRequest> httpRequestCaptor;
 
     @BeforeEach
-    void setUp() throws NoSuchFieldException, IllegalAccessException {
+    void setUp() {
         // Initialize a test document before each test
         testDocument = createTestDocument();
     }
@@ -163,9 +164,8 @@ public class CrptApiTest {
                 .registerTypeAdapter(LocalDate.class, new CrptApi.LocalDateAdapter())
                 .create();
         
-        CrptApi.Document doc = new CrptApi.Document();
         LocalDate date = LocalDate.of(2023, 1, 15);
-        doc.setProductionDate(date);
+        CrptApi.Document doc = new CrptApi.Document(null, null, null, null, false, null, null, null, date, null, null, null, null);
         
         String json = gson.toJson(doc);
         
@@ -176,17 +176,14 @@ public class CrptApiTest {
     }
 
     private CrptApi.Document createTestDocument() {
-        CrptApi.Document document = new CrptApi.Document();
-        document.setDocId("TEST-DOC-001");
-        document.setDocType("LP_INTRODUCE_GOODS");
-        document.setOwnerInn("1234567890");
-        document.setProductionDate(LocalDate.now());
-        
-        CrptApi.Product product = new CrptApi.Product();
-        product.setUitCode("uit-code-123");
-        document.setProducts(List.of(product));
-        
-        return document;
+        CrptApi.Product product = new CrptApi.Product(
+                null, null, null, null, null, null, null, "uit-code-123", null
+        );
+
+        return new CrptApi.Document(
+                null, "TEST-DOC-001", null, "LP_INTRODUCE_GOODS", false,
+                "1234567890", null, null, LocalDate.now(), null, Collections.singletonList(product), null, null
+        );
     }
 
     private void setMockHttpClient(CrptApi api, HttpClient mockClient) throws NoSuchFieldException, IllegalAccessException {

@@ -10,6 +10,23 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.TypeAdapter;
+import com.google.gson.annotations.SerializedName;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.RequiredArgsConstructor;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -24,6 +41,7 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * Thread-safe API client for the Честный знак system with request rate limiting.
  */
+@Getter
 public class CrptApi {
     // API endpoints
     private static final String PRODUCTION_BASE_URL = "https://ismp.crpt.ru/api/v3";
@@ -156,22 +174,19 @@ public class CrptApi {
     /**
      * Authentication request.
      */
+    @RequiredArgsConstructor
     private static class AuthRequest {
         @SerializedName("uuid")
         private final String uuid;
 
         @SerializedName("data")
         private final String data;
-
-        public AuthRequest(String uuid, String data) {
-            this.uuid = uuid;
-            this.data = data;
-        }
     }
 
     /**
      * Authentication response.
      */
+    @Getter
     private static class AuthResponse {
         @SerializedName("token")
         private String token;
@@ -184,22 +199,6 @@ public class CrptApi {
 
         @SerializedName("description")
         private String description;
-
-        public String getToken() {
-            return token;
-        }
-
-        public String getCode() {
-            return code;
-        }
-
-        public String getErrorMessage() {
-            return errorMessage;
-        }
-
-        public String getDescription() {
-            return description;
-        }
     }
 
     /**
@@ -298,25 +297,21 @@ public class CrptApi {
     /**
      * Document format enum.
      */
+    @Getter
+    @RequiredArgsConstructor
     public enum DocumentFormat {
         MANUAL("MANUAL"),
         XML("XML"),
         CSV("CSV");
 
         private final String value;
-
-        DocumentFormat(String value) {
-            this.value = value;
-        }
-
-        public String getValue() {
-            return value;
-        }
     }
 
     /**
      * Product group enum.
      */
+    @Getter
+    @RequiredArgsConstructor
     public enum ProductGroup {
         CLOTHES("clothes"),
         SHOES("shoes"),
@@ -330,19 +325,13 @@ public class CrptApi {
         WHEELCHAIRS("wheelchairs");
 
         private final String code;
-
-        ProductGroup(String code) {
-            this.code = code;
-        }
-
-        public String getCode() {
-            return code;
-        }
     }
 
     /**
      * Document type enum.
      */
+    @Getter
+    @RequiredArgsConstructor
     public enum DocumentType {
         AGGREGATION_DOCUMENT("AGGREGATION_DOCUMENT"),
         AGGREGATION_DOCUMENT_CSV("AGGREGATION_DOCUMENT_CSV"),
@@ -406,19 +395,12 @@ public class CrptApi {
         LP_CANCEL_SHIPMENT_CROSSBORDER("LP_CANCEL_SHIPMENT_CROSSBORDER");
 
         private final String value;
-
-        DocumentType(String value) {
-            this.value = value;
-        }
-
-        public String getValue() {
-            return value;
-        }
     }
 
     /**
      * Unified document request for the document creation API.
      */
+    @RequiredArgsConstructor
     private static class UnifiedDocumentRequest {
         @SerializedName("document_format")
         private final String documentFormat;
@@ -434,19 +416,6 @@ public class CrptApi {
 
         @SerializedName("type")
         private final String type;
-
-        public UnifiedDocumentRequest(
-                String documentFormat,
-                String productDocument,
-                String productGroup,
-                String signature,
-                String type) {
-            this.documentFormat = documentFormat;
-            this.productDocument = productDocument;
-            this.productGroup = productGroup;
-            this.signature = signature;
-            this.type = type;
-        }
     }
 
     /**
@@ -489,6 +458,7 @@ public class CrptApi {
     /**
      * Exception thrown when the API returns an error.
      */
+    @Getter
     public static class ApiException extends Exception {
         private final int statusCode;
 
@@ -496,46 +466,35 @@ public class CrptApi {
             super(message);
             this.statusCode = statusCode;
         }
-
-        public int getStatusCode() {
-            return statusCode;
-        }
     }
 
     /**
      * API error response.
      */
+    @Getter
     private static class ApiError {
         @SerializedName("error_message")
         private String errorMessage;
-
-        public String getErrorMessage() {
-            return errorMessage;
-        }
     }
 
     /**
      * Authentication key response.
      */
+    @Getter
     private static class AuthKeyResponse {
         @SerializedName("uuid")
         private String uuid;
 
         @SerializedName("data")
         private String data;
-
-        public String getUuid() {
-            return uuid;
-        }
-
-        public String getData() {
-            return data;
-        }
     }
 
     /**
      * Response from creating a document.
      */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class CreateDocumentResponse {
         // Add fields based on the actual API response
         @SerializedName("document_id")
@@ -543,19 +502,14 @@ public class CrptApi {
 
         @SerializedName("status")
         private String status;
-
-        public String getDocumentId() {
-            return documentId;
-        }
-
-        public String getStatus() {
-            return status;
-        }
     }
 
     /**
      * Document model for creating documents in the Честный знак system.
      */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class Document {
         @SerializedName("description")
         private Description description;
@@ -595,133 +549,25 @@ public class CrptApi {
 
         @SerializedName("reg_number")
         private String regNumber;
-
-        // Getters and setters
-
-        public Description getDescription() {
-            return description;
-        }
-
-        public void setDescription(Description description) {
-            this.description = description;
-        }
-
-        public String getDocId() {
-            return docId;
-        }
-
-        public void setDocId(String docId) {
-            this.docId = docId;
-        }
-
-        public String getDocStatus() {
-            return docStatus;
-        }
-
-        public void setDocStatus(String docStatus) {
-            this.docStatus = docStatus;
-        }
-
-        public String getDocType() {
-            return docType;
-        }
-
-        public void setDocType(String docType) {
-            this.docType = docType;
-        }
-
-        public boolean isImportRequest() {
-            return importRequest;
-        }
-
-        public void setImportRequest(boolean importRequest) {
-            this.importRequest = importRequest;
-        }
-
-        public String getOwnerInn() {
-            return ownerInn;
-        }
-
-        public void setOwnerInn(String ownerInn) {
-            this.ownerInn = ownerInn;
-        }
-
-        public String getParticipantInn() {
-            return participantInn;
-        }
-
-        public void setParticipantInn(String participantInn) {
-            this.participantInn = participantInn;
-        }
-
-        public String getProducerInn() {
-            return producerInn;
-        }
-
-        public void setProducerInn(String producerInn) {
-            this.producerInn = producerInn;
-        }
-
-        public LocalDate getProductionDate() {
-            return productionDate;
-        }
-
-        public void setProductionDate(LocalDate productionDate) {
-            this.productionDate = productionDate;
-        }
-
-        public String getProductionType() {
-            return productionType;
-        }
-
-        public void setProductionType(String productionType) {
-            this.productionType = productionType;
-        }
-
-        public List<Product> getProducts() {
-            return products;
-        }
-
-        public void setProducts(List<Product> products) {
-            this.products = products;
-        }
-
-        public LocalDate getRegDate() {
-            return regDate;
-        }
-
-        public void setRegDate(LocalDate regDate) {
-            this.regDate = regDate;
-        }
-
-        public String getRegNumber() {
-            return regNumber;
-        }
-
-        public void setRegNumber(String regNumber) {
-            this.regNumber = regNumber;
-        }
     }
 
     /**
      * Description part of the document.
      */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class Description {
         @SerializedName("participant_inn")
         private String participantInn;
-
-        public String getParticipantInn() {
-            return participantInn;
-        }
-
-        public void setParticipantInn(String participantInn) {
-            this.participantInn = participantInn;
-        }
     }
 
     /**
      * Product information.
      */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class Product {
         @SerializedName("certificate_document")
         private String certificateDocument;
@@ -749,80 +595,6 @@ public class CrptApi {
 
         @SerializedName("uitu_code")
         private String uituCode;
-
-        // Getters and setters
-
-        public String getCertificateDocument() {
-            return certificateDocument;
-        }
-
-        public void setCertificateDocument(String certificateDocument) {
-            this.certificateDocument = certificateDocument;
-        }
-
-        public LocalDate getCertificateDocumentDate() {
-            return certificateDocumentDate;
-        }
-
-        public void setCertificateDocumentDate(LocalDate certificateDocumentDate) {
-            this.certificateDocumentDate = certificateDocumentDate;
-        }
-
-        public String getCertificateDocumentNumber() {
-            return certificateDocumentNumber;
-        }
-
-        public void setCertificateDocumentNumber(String certificateDocumentNumber) {
-            this.certificateDocumentNumber = certificateDocumentNumber;
-        }
-
-        public String getOwnerInn() {
-            return ownerInn;
-        }
-
-        public void setOwnerInn(String ownerInn) {
-            this.ownerInn = ownerInn;
-        }
-
-        public String getProducerInn() {
-            return producerInn;
-        }
-
-        public void setProducerInn(String producerInn) {
-            this.producerInn = producerInn;
-        }
-
-        public LocalDate getProductionDate() {
-            return productionDate;
-        }
-
-        public void setProductionDate(LocalDate productionDate) {
-            this.productionDate = productionDate;
-        }
-
-        public String getTnvedCode() {
-            return tnvedCode;
-        }
-
-        public void setTnvedCode(String tnvedCode) {
-            this.tnvedCode = tnvedCode;
-        }
-
-        public String getUitCode() {
-            return uitCode;
-        }
-
-        public void setUitCode(String uitCode) {
-            this.uitCode = uitCode;
-        }
-
-        public String getUituCode() {
-            return uituCode;
-        }
-
-        public void setUituCode(String uituCode) {
-            this.uituCode = uituCode;
-        }
     }
     
     /**
